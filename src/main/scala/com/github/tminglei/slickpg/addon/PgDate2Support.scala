@@ -61,6 +61,8 @@ trait PgDate2Support extends date.PgDateExtensions with utils.PgCommonJdbcTypes 
       LocalDateTime.MAX.atZone(ZoneId.of("UTC")), LocalDateTime.MIN.atZone(ZoneId.of("UTC")),
       ZonedDateTime.parse(_, date2TzDateTimeFormatter)
     )
+    protected val fromInstantOrInfinity: String => Instant = fromInfinitable(
+      Instant.MAX, Instant.MIN, fromDateTimeOrInfinity.andThen(_.toInstant(ZoneOffset.UTC)))
     ///
     protected def toInfinitable[T](max: T, min: T, format: T => String): T => String = {
       case `max` =>  "infinity"
@@ -77,6 +79,8 @@ trait PgDate2Support extends date.PgDateExtensions with utils.PgCommonJdbcTypes 
       toInfinitable[ZonedDateTime](LocalDateTime.MAX.atZone(ZoneId.of("UTC")), LocalDateTime.MIN.atZone(ZoneId.of("UTC")),
       _.format(date2TzDateTimeFormatter)
     )
+    protected val toInstantOrInfinity: Instant => String =
+      toInfinitable[Instant](Instant.MAX, Instant.MIN, _.toString)
   }
 
   trait Date2DateTimeImplicits[INTERVAL] extends Date2DateTimeFormatters {
@@ -86,6 +90,8 @@ trait PgDate2Support extends date.PgDateExtensions with utils.PgCommonJdbcTypes 
       LocalTime.parse(_, date2TimeFormatter), _.format(date2TimeFormatter), hasLiteralForm=false)
     implicit val date2DateTimeTypeMapper = new GenericJdbcType[LocalDateTime]("timestamp",
       fromDateTimeOrInfinity, toDateTimeOrInfinity, hasLiteralForm=false)
+    implicit val date2InstantTypeMapper = new GenericJdbcType[Instant]("timestamp",
+      fromInstantOrInfinity, toInstantOrInfinity, hasLiteralForm=false)
     implicit val date2PeriodTypeMapper = new GenericJdbcType[Period]("interval", pgIntervalStr2Period, hasLiteralForm=false)
     implicit val durationTypeMapper = new GenericJdbcType[Duration]("interval", pgIntervalStr2Duration, hasLiteralForm=false)
     implicit val date2TzTimeTypeMapper = new GenericJdbcType[OffsetTime]("timetz",
@@ -174,6 +180,8 @@ trait PgDate2Support extends date.PgDateExtensions with utils.PgCommonJdbcTypes 
       def nextDurationOption() = r.nextStringOption().map(pgIntervalStr2Duration)
       def nextZoneId() = nextZoneIdOption().orNull
       def nextZoneIdOption() = r.nextStringOption().map(ZoneId.of)
+      def nextInstant() = nextInstantOption().orNull
+      def nextInstantOption() = r.nextStringOption().map(fromInstantOrInfinity)
     }
 
     /////////////////////////////////////////////////////////////////////////////
@@ -217,6 +225,13 @@ trait PgDate2Support extends date.PgDateExtensions with utils.PgCommonJdbcTypes 
     }
     implicit object SetZonedDateTimeOption extends SetParameter[Option[ZonedDateTime]] {
       def apply(v: Option[ZonedDateTime], pp: PositionedParameters) = setDateTime(Types.TIMESTAMP_WITH_TIMEZONE, "timestamptz", v.map(toZonedDateTimeOrInfinity), pp)
+    }
+    ///
+    implicit object SetInstant extends SetParameter[Instant] {
+      def apply(v: Instant, pp: PositionedParameters) = setDateTime(Types.TIMESTAMP, "timestamp", Option(v).map(toInstantOrInfinity), pp)
+    }
+    implicit object SetInstantOption extends SetParameter[Option[Instant]] {
+      def apply(v: Option[Instant], pp: PositionedParameters) = setDateTime(Types.TIMESTAMP, "timestamp", v.map(toInstantOrInfinity), pp)
     }
     ///
     implicit object SetPeriod extends SetParameter[Period] {

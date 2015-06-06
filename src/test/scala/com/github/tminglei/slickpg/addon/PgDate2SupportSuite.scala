@@ -30,6 +30,7 @@ class PgDate2SupportSuite extends FunSuite {
     dateTime: LocalDateTime,
     dateTimeOffset: OffsetDateTime,
     dateTimeTz: ZonedDateTime,
+    instant: Instant,
     duration: Duration,
     period: Period,
     zone: ZoneId
@@ -42,11 +43,12 @@ class PgDate2SupportSuite extends FunSuite {
     def dateTime = column[LocalDateTime]("dateTime")
     def dateTimeOffset = column[OffsetDateTime]("dateTimeOffset")
     def dateTimeTz = column[ZonedDateTime]("dateTimeTz")
+    def instant = column[Instant]("instant")
     def duration = column[Duration]("duration")
     def period = column[Period]("period")
     def zone = column[ZoneId]("zone")
 
-    def * = (id, date, time, dateTime, dateTimeOffset, dateTimeTz, duration, period, zone) <>
+    def * = (id, date, time, dateTime, dateTimeOffset, dateTimeTz, instant, duration, period, zone) <>
             (DatetimeBean.tupled, DatetimeBean.unapply)
   }
   val Datetimes = TableQuery[DatetimeTable]
@@ -57,13 +59,14 @@ class PgDate2SupportSuite extends FunSuite {
     LocalDateTime.parse("2001-01-03T13:21:00.223571"),
     OffsetDateTime.parse("2001-01-03 13:21:00.102203+08", date2TzDateTimeFormatter),
     ZonedDateTime.parse("2001-01-03 13:21:00.102203+08", date2TzDateTimeFormatter),
-    Duration.parse("P1DT1H1M0.335701S"), Period.parse("P1Y2M3W4D"), ZoneId.of("America/New_York"))
+    Instant.parse("2001-01-03T13:21:00.102203Z"), Duration.parse("P1DT1H1M0.335701S"),
+    Period.parse("P1Y2M3W4D"), ZoneId.of("America/New_York"))
   val testRec2 = new DatetimeBean(102L, LocalDate.MAX, LocalTime.parse("03:14:07"),
     LocalDateTime.MAX, OffsetDateTime.MAX, LocalDateTime.MAX.atZone(ZoneId.of("UTC")),
-    Duration.parse("P1587D"), Period.parse("P15M7D"), ZoneId.of("Europe/London"))
+    Instant.MAX, Duration.parse("P1587D"), Period.parse("P15M7D"), ZoneId.of("Europe/London"))
   val testRec3 = new DatetimeBean(103L, LocalDate.MIN, LocalTime.parse("11:13:34"),
     LocalDateTime.MIN, OffsetDateTime.MIN, LocalDateTime.MIN.atZone(ZoneId.of("UTC")),
-    Duration.parse("PT63H16M2S"), Period.parse("P3M5D"), ZoneId.of("Asia/Shanghai"))
+    Instant.MIN, Duration.parse("PT63H16M2S"), Period.parse("P3M5D"), ZoneId.of("Asia/Shanghai"))
 
   test("Java8 date Lifted support") {
     Await.result(db.run(
@@ -232,21 +235,22 @@ class PgDate2SupportSuite extends FunSuite {
 
     implicit val getDateBean = GetResult(r => DatetimeBean(
       r.nextLong(), r.nextLocalDate(), r.nextLocalTime(), r.nextLocalDateTime(), r.nextOffsetDateTime(), r.nextZonedDateTime(),
-      r.nextDuration(), r.nextPeriod(), r.nextZoneId))
+      r.nextInstant(), r.nextDuration(), r.nextPeriod(), r.nextZoneId))
 
     val b = new DatetimeBean(107L, LocalDate.parse("2010-11-03"), LocalTime.parse("12:33:01.101357"),
       LocalDateTime.parse("2001-01-03T13:21:00.223571"),
       OffsetDateTime.parse("2001-01-03 13:21:00.102203+08", date2TzDateTimeFormatter),
       ZonedDateTime.parse("2001-01-03 13:21:00.102203+08", date2TzDateTimeFormatter),
-      Duration.parse("P1DT1H1M0.335701S"), Period.parse("P1Y2M3W4D"), ZoneId.of("Africa/Johannesburg"))
+      Instant.parse("2001-01-03T13:21:00.102203Z"), Duration.parse("P1DT1H1M0.335701S"),
+      Period.parse("P1Y2M3W4D"), ZoneId.of("Africa/Johannesburg"))
     // -infinity
     val b1 = new DatetimeBean(108L, LocalDate.MIN, LocalTime.parse("12:33:01.101357"),
       LocalDateTime.MIN, OffsetDateTime.MIN, LocalDateTime.MIN.atZone(ZoneId.of("UTC")),
-      Duration.parse("P1DT1H1M0.335701S"), Period.parse("P1Y2M3W4D"), ZoneId.of("Africa/Johannesburg"))
+      Instant.MIN, Duration.parse("P1DT1H1M0.335701S"), Period.parse("P1Y2M3W4D"), ZoneId.of("Africa/Johannesburg"))
     // +infinity
     val b2 = new DatetimeBean(109L, LocalDate.MAX, LocalTime.parse("12:33:01.101357"),
       LocalDateTime.MAX, OffsetDateTime.MAX, LocalDateTime.MAX.atZone(ZoneId.of("UTC")),
-      Duration.parse("P1DT1H1M0.335701S"), Period.parse("P1Y2M3W4D"), ZoneId.of("Africa/Johannesburg"))
+      Instant.MAX, Duration.parse("P1DT1H1M0.335701S"), Period.parse("P1Y2M3W4D"), ZoneId.of("Africa/Johannesburg"))
 
     Await.result(db.run(
       DBIO.seq(
@@ -258,43 +262,46 @@ class PgDate2SupportSuite extends FunSuite {
               ts timestamp not null,
               tsos timestamptz not null,
               tstz timestamptz not null,
+              instant timestamp not null,
               duration interval not null,
               period interval not null,
               zone text not null)
           """,
         ///
-        sqlu""" insert into Datetime2Test values(${b.id}, ${b.date}, ${b.time}, ${b.dateTime}, ${b.dateTimeOffset}, ${b.dateTimeTz}, ${b.duration}, ${b.period}, ${b.zone}) """,
+        sqlu""" insert into Datetime2Test values(${b.id}, ${b.date}, ${b.time}, ${b.dateTime}, ${b.dateTimeOffset}, ${b.dateTimeTz}, ${b.instant}, ${b.duration}, ${b.period}, ${b.zone}) """,
         sql""" select * from Datetime2Test where id = ${b.id} """.as[DatetimeBean].head.map(
           r => assert(b === r)
         ),
         /// inserting MIN date/time: PostgreSQL should store as infinity, but we see as MIN/MAX
-        sqlu""" insert into Datetime2Test values(${b1.id}, ${b1.date}, ${b1.time}, ${b1.dateTime}, ${b1.dateTimeOffset}, ${b1.dateTimeTz}, ${b1.duration}, ${b1.period}, ${b1.zone}) """,
+        sqlu""" insert into Datetime2Test values(${b1.id}, ${b1.date}, ${b1.time}, ${b1.dateTime}, ${b1.dateTimeOffset}, ${b1.dateTimeTz}, ${b1.instant}, ${b1.duration}, ${b1.period}, ${b1.zone}) """,
         sql""" select * from Datetime2Test where id = ${b1.id} and isfinite(date) != true and isfinite(ts) != true and isfinite(tsos) != true and isfinite(tstz) != true """.as[DatetimeBean].head.map {
           r => assert(b1 === r)
         },
         /// same for MAX date/time
-        sqlu""" insert into Datetime2Test values(${b2.id}, ${b2.date}, ${b2.time}, ${b2.dateTime}, ${b2.dateTimeOffset}, ${b2.dateTimeTz}, ${b2.duration}, ${b2.period}, ${b2.zone}) """,
+        sqlu""" insert into Datetime2Test values(${b2.id}, ${b2.date}, ${b2.time}, ${b2.dateTime}, ${b2.dateTimeOffset}, ${b2.dateTimeTz}, ${b2.instant}, ${b2.duration}, ${b2.period}, ${b2.zone}) """,
         sql""" select * from Datetime2Test where id = ${b2.id} and isfinite(date) != true and isfinite(ts) != true and isfinite(tsos) != true and isfinite(tstz) != true """.as[DatetimeBean].head.map {
           r => assert(b2 === r)
         },
         // inserting literal infinity also possible, first minus
-        sqlu""" insert into Datetime2Test values(${b.id + 3}, '-infinity', ${b.time}, '-infinity', '-infinity', '-infinity', ${b.duration}, ${b.period}, ${b.zone}) """,
+        sqlu""" insert into Datetime2Test values(${b.id + 3}, '-infinity', ${b.time}, '-infinity', '-infinity', '-infinity', '-infinity', ${b.duration}, ${b.period}, ${b.zone}) """,
         sql""" select * from Datetime2Test where id = ${b.id + 3} and isfinite(date) != true and isfinite(ts) != true and isfinite(tsos) != true and isfinite(tstz) != true """.as[DatetimeBean].head.map {
           r => {
             assert(LocalDate.MIN === r.date)
             assert(LocalDateTime.MIN === r.dateTime)
             assert(OffsetDateTime.MIN === r.dateTimeOffset)
             assert(LocalDateTime.MIN === r.dateTimeTz.toLocalDateTime)
+            assert(Instant.MIN === r.instant)
           }
         },
         // literal plus infinity
-        sqlu""" insert into Datetime2Test values(${b.id + 4}, 'infinity', ${b.time}, 'infinity', 'infinity', 'infinity', ${b.duration}, ${b.period}, ${b.zone}) """,
+        sqlu""" insert into Datetime2Test values(${b.id + 4}, 'infinity', ${b.time}, 'infinity', 'infinity', 'infinity', 'infinity', ${b.duration}, ${b.period}, ${b.zone}) """,
         sql""" select * from Datetime2Test where id = ${b.id + 4} and isfinite(date) != true and isfinite(ts) != true and isfinite(tsos) != true and isfinite(tstz) != true """.as[DatetimeBean].head.map {
           r => {
             assert(LocalDate.MAX === r.date)
             assert(LocalDateTime.MAX === r.dateTime)
             assert(OffsetDateTime.MAX === r.dateTimeOffset)
             assert(LocalDateTime.MAX === r.dateTimeTz.toLocalDateTime)
+            assert(Instant.MAX === r.instant)
           }
         },
         ///
